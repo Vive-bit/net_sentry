@@ -1,0 +1,73 @@
+name: Build Python 3.12 Wheel
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libpcap-dev
+          python -m pip install --upgrade pip
+          pip install maturin
+      - run: |
+          maturin build --release --interpreter python3.12
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexacore-py312-wheel-x86_64
+          path: target/wheels/*.whl
+
+  linux-armv7l:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-qemu-action@v2
+        with:
+          platforms: linux/arm/v7
+      - uses: actions/checkout@v4
+      - run: |
+          docker run --rm --platform linux/arm/v7 \
+            -v "${{ github.workspace }}":/io \
+            -w /io arm32v7/python:3.12-slim-bullseye bash -lc "
+              apt-get update && \
+              apt-get install -y git curl build-essential python3-dev libpcap-dev patchelf && \
+              curl https://sh.rustup.rs -sSf | sh -s -- -y && \
+              export PATH=\$HOME/.cargo/bin:\$PATH && \
+              pip3 install --upgrade pip maturin[patchelf] && \
+              maturin build --release --interpreter python3.12
+            "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexacore-py312-wheel-armv7l
+          path: target/wheels/*.whl
+
+  linux-aarch64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-qemu-action@v2
+        with:
+          platforms: linux/arm64
+      - uses: actions/checkout@v4
+      - run: |
+          docker pull quay.io/pypa/manylinux2014_aarch64:latest
+          docker run --rm \
+            -v "${{ github.workspace }}":/io \
+            -w /io quay.io/pypa/manylinux2014_aarch64:latest bash -lc "
+              yum install -y git python3-devel curl libpcap-devel && \
+              curl https://sh.rustup.rs -sSf | sh -s -- -y && \
+              export PATH=\$HOME/.cargo/bin:\$PATH && \
+              export PATH=/opt/python/cp312-cp312/bin:\$PATH && \
+              python3.12 -m pip install --upgrade pip maturin && \
+              python3.12 -m maturin build --release --interpreter python3.12
+            "
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nexacore-py312-wheel-aarch64
+          path: target/wheels/*.whl

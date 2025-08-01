@@ -1,0 +1,12 @@
+[package]
+name = "net_sentry"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "net_sentry"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.18", features = ["extension-module"] }
+pcap = "0.9"
