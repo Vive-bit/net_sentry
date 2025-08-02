@@ -19,25 +19,23 @@ impl Sniffer {
 
     #[new]
     pub fn new(interface: &str, filter: Option<&str>) -> PyResult<Self> {
-        let devices = Device::list()
-            .map_err(|e| PyRuntimeError::new_err(format!("pcap Device list failed: {}", e)))?;
-
-        let dev = devices
+        let dev = Device::list()
+            .map_err(|e| PyRuntimeError::new_err(format!("Device list failed: {}", e)))?
             .into_iter()
             .find(|d| d.name == interface)
-            .ok_or_else(|| PyRuntimeError::new_err(format!("pcap: no such device '{}'", interface)))?;
+            .ok_or_else(|| PyRuntimeError::new_err(format!("no such device '{}'", interface)))?;
 
         let mut cap = Capture::from_device(dev)
-            .map_err(|e| PyRuntimeError::new_err(format!("pcap from_device failed: {}", e)))?
+            .map_err(|e| PyRuntimeError::new_err(format!("from_device failed: {}", e)))?
             .promisc(true)
             .immediate_mode(true)
             .timeout(1000)
             .open()
-            .map_err(|e| PyRuntimeError::new_err(format!("pcap open failed: {}", e)))?;
+            .map_err(|e| PyRuntimeError::new_err(format!("open failed: {}", e)))?;
 
         if let Some(expr) = filter {
             cap.filter(expr, true)
-                .map_err(|e| PyRuntimeError::new_err(format!("pcap filter failed: {}", e)))?;
+                .map_err(|e| PyRuntimeError::new_err(format!("filter failed: {}", e)))?;
         }
 
         Ok(Sniffer { cap })
