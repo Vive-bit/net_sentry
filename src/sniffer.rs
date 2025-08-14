@@ -56,7 +56,7 @@ impl Sniffer {
             .into_iter()
             .find(|d| d.name == interface)
             .ok_or_else(|| PyRuntimeError::new_err(format!("no such device '{}'", interface)))?;
-
+    
         let mut cap = Capture::from_device(dev)
             .map_err(|e| PyRuntimeError::new_err(format!("from_device failed: {}", e)))?
             .promisc(true)
@@ -66,7 +66,7 @@ impl Sniffer {
             .buffer_size(4 * 1024 * 1024)
             .open()
             .map_err(|e| PyRuntimeError::new_err(format!("open failed: {}", e)))?;
-
+    
         if let Some(expr) = filter {
             cap.filter(expr, true)
                 .map_err(|e| PyRuntimeError::new_err(format!("filter failed: {}", e)))?;
@@ -96,9 +96,8 @@ impl Sniffer {
         Ok(())
     }
 
-    pub fn set_timeout(&mut self, ms: i32) -> PyResult<()> {
+    pub fn set_timeout(&mut self) -> PyResult<()> {
         self.cap
-            .set_timeout(ms)
             .map_err(|e| PyRuntimeError::new_err(format!("set_timeout failed: {}", e)))
     }
 
