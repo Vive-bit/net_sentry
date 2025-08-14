@@ -6,7 +6,7 @@ use pcap::Stat;
 
 #[pyclass]
 pub struct Sniffer {
-    cap: Capture<Active>,
+    cap: Option<Capture<Active>>
 }
 
 #[pymethods]
@@ -41,26 +41,53 @@ impl Sniffer {
                 .map_err(|e| PyRuntimeError::new_err(format!("filter failed: {}", e)))?;
         }
 
-        Ok(Sniffer { cap })
+        Ok(Sniffer { cap: Some(cap) })
     }
 
+    pub fn reopen_with_timeout(&mut self, interface: &str, filter: Option<&str>, timeout_ms: i32) -> PyResult<()> {
+        let dev = Device::list()
+            .map_err(|e| PyRuntimeError::new_err(format!("Device list failed: {}", e)))?
+            .into_iter()
+            .find(|d| d.name == interface)
+            .ok_or_else(|| PyRuntimeError::new_err(format!("no such device '{}'", interface)))?;
+
+        let mut cap = Capture::from_device(dev)
+            .map_err(|e| PyRuntimeError::new_err(format!("from_device failed: {}", e)))?
+            .promisc(true)
+            .immediate_mode(true)
+            .timeout(timeout_ms)
+            .snaplen(262_144)
+            .buffer_size(4 * 1024 * 1024)
+            .open()
+            .map_err(|e| PyRuntimeError::new_err(format!("open failed: {}", e)))?;
+
+        if let Some(expr) = filter {
+            cap.filter(expr, true)
+               .map_err(|e| PyRuntimeError::new_err(format!("filter failed: {}", e)))?;
+        }
+        self.cap = Some(cap);
+        Ok(())
+    }
+    
     pub fn stats(&mut self) -> PyResult<(u32,u32,u32)> {
-        match self.cap.stats() {
+        let cap = self.cap.as_mut().ok_or_else(|| PyRuntimeError::new_err("capture closed"))?;
+        match cap.stats() {
             Ok(Stat { received, dropped, if_dropped }) => Ok((received, dropped, if_dropped)),
             Err(e) => Err(PyRuntimeError::new_err(format!("stats failed: {}", e))),
         }
     }
-
+    
     pub fn set_filter(&mut self, expr: &str) -> PyResult<()> {
-        self.cap
-            .filter(expr, true)
-            .map_err(|e| PyRuntimeError::new_err(format!("filter failed: {}", e)))
+        let cap = self.cap.as_mut().ok_or_else(|| PyRuntimeError::new_err("capture closed"))?;
+        cap.filter(expr, true).map_err(|e| PyRuntimeError::new_err(format!("filter failed: {}", e)))
     }
 
-    pub fn set_nonblock(&mut self, nonblock: bool) -> PyResult<()> {
-        self.cap
-            .setnonblock(nonblock)
-            .map_err(|e| PyRuntimeError::new_err(format!("setnonblock failed: {}", e)))
+    pub fn set_nonblock(&mut self) -> PyResult<()> {
+        let cap = self.cap.take().ok_or_else(|| PyRuntimeError::new_err("capture closed"))?;
+        let cap = cap.setnonblock()
+            .map_err(|e| PyRuntimeError::new_err(format!("setnonblock failed: {}", e)))?;
+        self.cap = Some(cap);
+        Ok(())
     }
 
     pub fn set_timeout(&mut self, ms: i32) -> PyResult<()> {
@@ -105,11 +132,12 @@ impl Sniffer {
  //   }
 
     pub fn next_batch(&mut self, batch_size: usize, py: Python) -> PyResult<Vec<PyObject>> {
+        let cap = self.cap.as_mut().ok_or_else(|| PyRuntimeError::new_err("capture closed"))?;
         let packets: Result<Vec<Vec<u8>>, pcap::Error> = py.allow_threads(|| {
             let mut v = Vec::with_capacity(batch_size);
             for _ in 0..batch_size {
-                match self.cap.next() {
-                    Ok(pkt) => v.push(pkt.data.to_vec()), 
+                match cap.next() {
+                    Ok(pkt) => v.push(pkt.data.to_vec()),
                     Err(pcap::Error::TimeoutExpired) => break,
                     Err(e) => return Err(e),
                 }
@@ -118,20 +146,21 @@ impl Sniffer {
         });
     
         let packets = packets.map_err(|e| PyRuntimeError::new_err(format!("pcap next() failed: {}", e)))?;
-    
         let mut out: Vec<PyObject> = Vec::with_capacity(packets.len());
         for buf in packets {
-            out.push(PyBytes::new(py, &buf).into_py(py));
+            let pybytes: Py<PyBytes> = PyBytes::new(py, &buf).into_py(py);
+            out.push(pybytes);
         }
         Ok(out)
     }
 
     
     pub fn next_batch_meta(&mut self, batch_size: usize, py: Python) -> PyResult<Vec<PyObject>> {
+        let cap = self.cap.as_mut().ok_or_else(|| PyRuntimeError::new_err("capture closed"))?;
         let items: Result<Vec<((i64,i64), usize, usize, Vec<u8>)>, pcap::Error> = py.allow_threads(|| {
             let mut v = Vec::with_capacity(batch_size);
             for _ in 0..batch_size {
-                match self.cap.next() {
+                match cap.next() {
                     Ok(pkt) => {
                         let ts = (pkt.header.ts.tv_sec as i64, pkt.header.ts.tv_usec as i64);
                         let caplen = pkt.header.caplen as usize;
@@ -146,10 +175,9 @@ impl Sniffer {
         });
     
         let items = items.map_err(|e| PyRuntimeError::new_err(format!("pcap next() failed: {}", e)))?;
-    
         let mut out: Vec<PyObject> = Vec::with_capacity(items.len());
         for ((sec,usec), caplen, origlen, buf) in items {
-            let pybytes = PyBytes::new(py, &buf).into_py(py);
+            let pybytes: Py<PyBytes> = PyBytes::new(py, &buf).into_py(py);
             out.push((sec, usec, caplen, origlen, pybytes).into_py(py));
         }
         Ok(out)
