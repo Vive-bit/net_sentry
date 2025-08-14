@@ -2,6 +2,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use pyo3::exceptions::PyRuntimeError;
 use pcap::{Capture, Device, Active};
+use pcap::Stat;
 
 #[pyclass]
 pub struct Sniffer {
@@ -41,6 +42,31 @@ impl Sniffer {
         }
 
         Ok(Sniffer { cap })
+    }
+
+    pub fn stats(&mut self) -> PyResult<(u32,u32,u32)> {
+        match self.cap.stats() {
+            Ok(Stat { received, dropped, if_dropped }) => Ok((received, dropped, if_dropped)),
+            Err(e) => Err(PyRuntimeError::new_err(format!("stats failed: {}", e))),
+        }
+    }
+
+    pub fn set_filter(&mut self, expr: &str) -> PyResult<()> {
+        self.cap
+            .filter(expr, true)
+            .map_err(|e| PyRuntimeError::new_err(format!("filter failed: {}", e)))
+    }
+
+    pub fn set_nonblock(&mut self, nonblock: bool) -> PyResult<()> {
+        self.cap
+            .setnonblock(nonblock)
+            .map_err(|e| PyRuntimeError::new_err(format!("setnonblock failed: {}", e)))
+    }
+
+    pub fn set_timeout(&mut self, ms: i32) -> PyResult<()> {
+        self.cap
+            .set_timeout(ms)
+            .map_err(|e| PyRuntimeError::new_err(format!("set_timeout failed: {}", e)))
     }
 
  //   pub fn next_batch(&mut self, batch_size: usize, py: Python) -> PyResult<Vec<PyObject>> {
