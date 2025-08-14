@@ -44,8 +44,13 @@ impl Sniffer {
         Ok(Sniffer { cap: Some(cap) })
     }
 
-    #[pyo3(signature = (interface, filter=None, timeout_ms))]
-    pub fn reopen_with_timeout(&mut self, interface: &str, filter: Option<&str>, timeout_ms: i32) -> PyResult<()> {
+    #[pyo3(signature = (interface, timeout_ms=1000, filter=None))]
+    pub fn reopen_with_timeout(
+        &mut self,
+        interface: &str,
+        timeout_ms: i32,
+        filter: Option<&str>,
+    ) -> PyResult<()> {
         let dev = Device::list()
             .map_err(|e| PyRuntimeError::new_err(format!("Device list failed: {}", e)))?
             .into_iter()
@@ -149,8 +154,8 @@ impl Sniffer {
         let packets = packets.map_err(|e| PyRuntimeError::new_err(format!("pcap next() failed: {}", e)))?;
         let mut out: Vec<PyObject> = Vec::with_capacity(packets.len());
         for buf in packets {
-            let pybytes: Py<PyBytes> = PyBytes::new(py, &buf).into_py(py);
-            out.push(pybytes.into());
+            let obj: PyObject = PyBytes::new(py, &buf).to_object(py);
+            out.push(obj);
         }
         Ok(out)
     }
@@ -178,8 +183,8 @@ impl Sniffer {
         let items = items.map_err(|e| PyRuntimeError::new_err(format!("pcap next() failed: {}", e)))?;
         let mut out: Vec<PyObject> = Vec::with_capacity(items.len());
         for ((sec,usec), caplen, origlen, buf) in items {
-            let pybytes: Py<PyBytes> = PyBytes::new(py, &buf).into_py(py);
-            out.push((sec, usec, caplen, origlen, pybytes.into()).into_py(py));
+            let obj: PyObject = PyBytes::new(py, &buf).to_object(py);
+            out.push((sec, usec, caplen, origlen, obj).into_py(py));
         }
         Ok(out)
     }
